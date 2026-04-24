@@ -1,36 +1,52 @@
+import os
 import socket
 
-HOST = "::"  # Listen on all IPv6 interfaces
-PORT = 40000
+RECV_PORT = int(os.environ.get("RECV_PORT", "40000"))
+BIND_IP = "::" # '::' allows listening on ALL IPv6 interfaces [cite: 66, 68]
 
 def main():
-    # Set up for IPv6 (AF_INET6)
-    server = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-    
-    # Allow immediate reuse of the port after a restart
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
     try:
-        server.bind((HOST, PORT))
-        server.listen(1)
-        print(f"[CLIENT] Listening on IPv6 Port {PORT}...")
+        ifaces = [name for _, name in socket.if_nameindex()]
+        print(f"[RECV] Interfaces disponíveis: {ifaces}")
+    except Exception:
+        pass
 
-        while True:
-            conn, addr = server.accept()
-            # addr for IPv6 is a 4-tuple: (ip, port, flowinfo, scope_id)
-            print(f"[CLIENT] Connected by: {addr[0]}")
+    # Create IPv6 TCP Socket
+    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    # SO_REUSEADDR prevents "Address already in use" errors [cite: 24, 63, 69]
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-            data = conn.recv(1024)
-            if data:
-                print(f"[CLIENT] Received: {data.decode('utf-8')}")
-            
-            conn.close()
-            print("[CLIENT] Connection closed, waiting for next...")
-
+    try:
+        # Binding to ("::", port) works for all interfaces 
+        sock.bind((BIND_IP, RECV_PORT))
+        sock.listen(5)
+        print(f"[RECV] Servidor ouvindo em IPv6 [{BIND_IP}] porta {RECV_PORT}")
     except Exception as e:
-        print(f"[CLIENT] Error: {e}")
+        print(f"[ERROR] Falha ao bind/listen: {e}")
+        sock.close()
+        return
+
+    try:
+        while True:
+            conn, addr = sock.accept()
+            # addr is (ip, port, flowinfo, scope_id) [cite: 70]
+            print(f"[RECV] Conexão de: {addr}")
+
+            try:
+                data = conn.recv(4096)
+                if not data:
+                    print("[RECV] Conexão encerrada pelo cliente")
+                else:
+                    print(f"[RECV] Recebido {len(data)} bytes: {data.decode('utf-8')}")
+            except Exception as e:
+                print(f"[ERROR] Falha ao receber: {e}")
+            finally:
+                conn.close()
+    except KeyboardInterrupt:
+        print("[RECV] Encerrando servidor...")
     finally:
-        server.close()
+        sock.close()
+        print("[RECV] Socket fechado")
 
 if __name__ == "__main__":
     main()
