@@ -5,7 +5,7 @@ import time
 SECC2_IP = "fe80::8f2d:7470:bb0c:7462" 
 INTERFACE = "eth0" # The physical interface for PLC
 PORT = 40000 
-DATA = "TESTE123" 
+DATA = "I am the Master Calling" 
 
 def compute_connect_tuple(ip: str, port: int, iface: str):
     """
