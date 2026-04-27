@@ -1,4 +1,4 @@
-# RPi-Ladestation-1: EV Charging PLC Bridge
+# EV Charging PLC Bridge
 
 This repository contains the implementation of a High-Level Communication (HLC) bridge 
 using Raspberry Pi and devolo Green PHY hardware.
