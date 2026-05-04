@@ -1,0 +1,20 @@
+generat certificates : <>
+
+master@raspberrypi:~/Desktop/ISO15118_Project_EVCAT/iso15118_core/iso15118/shared/pki $ chmod +x create_certs.sh
+master@raspberrypi:~/Desktop/ISO15118_Project_EVCAT/iso15118_core/iso15118/shared/pki $ ./create_certs.sh -v iso-2
+
+`make install-local`
+`poetry install`
+
+cp .env.dev.local .env
+
+settin network interface in library  :
+
+code .env ——>  NETWORK_INTERFACE=eth0
+
+Installin dependency just for save side
+
+sudo apt install redis-server -y
+
+`make run-evcc`
+`make run-secc`

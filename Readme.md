@@ -11,4 +11,9 @@ using Raspberry Pi and devolo Green PHY hardware.
 ## Current Progress
 - [x] Physical Hardware Integration
 - [x] Ethernet Bridge Verification
-- [ ] ISO 15118-2 Handshake Implementation (In Progress)
+- [x] ISO 15118-2 Handshake Implementation (In Progress)
+- [ ] ISO security form TCP to TLS
+- [ ] Iso 15118-20 implimentation
+
+## How to run
+- see file Get_it_running
