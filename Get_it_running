@@ -15,6 +15,13 @@ code .env ——>  NETWORK_INTERFACE=eth0
 Installin dependency just for save side
 
 sudo apt install redis-server -y
+________________________________
+run cp .env.example .env to enable isoXXX-20 and tls
+
+./create_certs.sh -v iso-2
+./create_certs.sh -v iso-20
+
+________________________________
 
 `make run-evcc`
 `make run-secc`

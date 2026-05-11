@@ -12,8 +12,16 @@ using Raspberry Pi and devolo Green PHY hardware.
 - [x] Physical Hardware Integration
 - [x] Ethernet Bridge Verification
 - [x] ISO 15118-2 Handshake Implementation (In Progress)
-- [ ] ISO security form TCP to TLS
-- [ ] Iso 15118-20 implimentation
+- [X] ISO security form TCP to TLS
+- [X] Iso 15118-20 implimentation
+
+PKI Certificates: Working.
+
+Handshake: Secure (TLS).
+
+Protocol: ISO 15118-20 AC.
+
+Result: Session Success.
 
 ## How to run
 - see file Get_it_running
