@@ -23,5 +23,5 @@ run cp .env.example .env to enable isoXXX-20 and tls
 
 ________________________________
 
-`make run-evcc`
+`make run-evcc`  // poetry run python -m iso15118.evcc.main
 `make run-secc`
