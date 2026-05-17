@@ -3,7 +3,7 @@ import logging
 import sys
 
 from iso15118.evcc import Config, EVCCHandler
-from iso15118.evcc.controller.simulator import SimEVController
+from iso15118.evcc.controller.my_ui_controller import MyUIController as SimEVController
 from iso15118.evcc.evcc_config import load_from_file
 from iso15118.shared.exificient_exi_codec import ExificientEXICodec
 

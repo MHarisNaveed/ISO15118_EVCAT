@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EV Controller</title>
+    <style>
+        body { font-family: Arial; background: #1a1a2e; color: white; padding: 20px; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .card { background: #16213e; padding: 20px; border-radius: 10px; margin: 10px 0; }
+        input { width: 100%; margin: 10px 0; padding: 5px; }
+        button { background: #00ff88; color: #1a1a2e; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
+        .value { font-size: 24px; font-weight: bold; color: #00ff88; text-align: center; margin: 10px 0; }
+        .status { padding: 10px; border-radius: 5px; margin: 10px 0; text-align: center; }
+        .success { background: #00ff88; color: #1a1a2e; }
+        .error { background: #ff4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡ EV Control Panel</h1>
+        
+        <div class="card">
+            <h3>Battery SOC (%)</h3>
+            <input type="range" id="soc" min="0" max="100" value="10" step="1">
+            <div class="value" id="socValue">10%</div>
+        </div>
+        
+        <div class="card">
+            <h3>Target SOC (%)</h3>
+            <input type="range" id="target" min="0" max="100" value="80" step="1">
+            <div class="value" id="targetValue">80%</div>
+        </div>
+        
+        <div class="card">
+            <h3>Departure Time (hours)</h3>
+            <input type="range" id="departure" min="0.5" max="24" step="0.5" value="2">
+            <div class="value" id="departureValue">2 hours</div>
+        </div>
+        
+        <div class="card">
+            <h3>Max Current (A)</h3>
+            <input type="range" id="current" min="0" max="500" step="10" value="200">
+            <div class="value" id="currentValue">200 A</div>
+        </div>
+        
+        <div class="card">
+            <h3>Max Power (kW)</h3>
+            <input type="range" id="power" min="0" max="150" step="5" value="50">
+            <div class="value" id="powerValue">50 kW</div>
+        </div>
+        
+        <div class="card">
+            <label>
+                <input type="checkbox" id="bpt"> Enable BPT (V2G)
+            </label>
+        </div>
+        
+        <button onclick="saveValues()">💾 Apply Changes to EVCC</button>
+        
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        // Update displays
+        document.getElementById('soc').oninput = () => updateDisplay('soc', '%');
+        document.getElementById('target').oninput = () => updateDisplay('target', '%');
+        document.getElementById('departure').oninput = () => updateDisplay('departure', ' hours');
+        document.getElementById('current').oninput = () => updateDisplay('current', ' A');
+        document.getElementById('power').oninput = () => updateDisplay('power', ' kW');
+        
+        function updateDisplay(id, unit) {
+            document.getElementById(id + 'Value').innerHTML = document.getElementById(id).value + unit;
+        }
+        
+        function saveValues() {
+            const values = {
+                soc: parseInt(document.getElementById('soc').value),
+                target_soc: parseInt(document.getElementById('target').value),
+                departure_time_hours: parseFloat(document.getElementById('departure').value),
+                max_current: parseFloat(document.getElementById('current').value),
+                max_power: parseFloat(document.getElementById('power').value),
+                bpt_enabled: document.getElementById('bpt').checked
+            };
+            
+            fetch('/save', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(values)
+            })
+            .then(() => {
+                document.getElementById('status').innerHTML = '✅ Values saved! EVCC will use them.';
+                document.getElementById('status').className = 'status success';
+                setTimeout(() => {
+                    document.getElementById('status').innerHTML = '';
+                    document.getElementById('status').className = 'status';
+                }, 2000);
+            })
+            .catch(err => {
+                document.getElementById('status').innerHTML = '❌ Error saving: ' + err;
+                document.getElementById('status').className = 'status error';
+            });
+        }
+        
+        // Load current values
+        fetch('/load')
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('soc').value = data.soc;
+                document.getElementById('target').value = data.target_soc;
+                document.getElementById('departure').value = data.departure_time_hours;
+                document.getElementById('current').value = data.max_current;
+                document.getElementById('power').value = data.max_power;
+                document.getElementById('bpt').checked = data.bpt_enabled;
+                updateDisplay('soc', '%');
+                updateDisplay('target', '%');
+                updateDisplay('departure', ' hours');
+                updateDisplay('current', ' A');
+                updateDisplay('power', ' kW');
+            })
+            .catch(() => {
+                // Use defaults if file doesn't exist yet
+            });
+    </script>
+</body>
+</html>

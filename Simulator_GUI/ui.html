@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EV SOC Control</title>
+    <style>
+        body { font-family: Arial; background: #1a1a2e; color: white; text-align: center; padding: 50px; }
+        .box { background: #16213e; padding: 30px; border-radius: 15px; max-width: 400px; margin: auto; }
+        input { width: 100%; margin: 20px 0; padding: 10px; font-size: 18px; }
+        button { background: #00ff88; color: #1a1a2e; padding: 15px 30px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; }
+        .value { font-size: 48px; font-weight: bold; color: #00ff88; margin: 20px 0; }
+        h1 { color: #00ff88; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>⚡ EV SOC Control</h1>
+        <div class="value" id="socValue">10%</div>
+        <input type="range" id="soc" min="0" max="100" value="10" step="1">
+        <div>
+            <label>Target SOC: <span id="targetValue">80%</span></label>
+            <input type="range" id="target" min="0" max="100" value="80" step="1">
+        </div>
+        <button onclick="updateSOC()">Update SOC</button>
+        <p id="status" style="margin-top: 20px;"></p>
+    </div>
+
+    <script>
+        const slider = document.getElementById('soc');
+        const targetSlider = document.getElementById('target');
+        const socValue = document.getElementById('socValue');
+        const targetValue = document.getElementById('targetValue');
+        
+        slider.oninput = () => {
+            socValue.innerHTML = slider.value + '%';
+        };
+        
+        targetSlider.oninput = () => {
+            targetValue.innerHTML = targetSlider.value + '%';
+        };
+        
+        function updateSOC() {
+            const soc = parseInt(slider.value);
+            const target = parseInt(targetSlider.value);
+            
+            fetch('/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({soc: soc, target_soc: target})
+            })
+            .then(() => {
+                document.getElementById('status').innerHTML = '✅ SOC updated to ' + soc + '% (Target: ' + target + '%)';
+                setTimeout(() => document.getElementById('status').innerHTML = '', 2000);
+            });
+        }
+        
+        // Load current values
+        fetch('/values')
+            .then(res => res.json())
+            .then(data => {
+                if (data.soc) {
+                    slider.value = data.soc;
+                    socValue.innerHTML = data.soc + '%';
+                }
+                if (data.target_soc) {
+                    targetSlider.value = data.target_soc;
+                    targetValue.innerHTML = data.target_soc + '%';
+                }
+            });
+    </script>
+</body>
+</html>
