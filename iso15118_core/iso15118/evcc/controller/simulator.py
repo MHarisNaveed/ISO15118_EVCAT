@@ -360,8 +360,8 @@ class RealBatterySimulator(EVControllerInterface):
         """Overrides EVControllerInterface.get_dynamic_se_params()."""
         return DynamicScheduleExchangeReqParams(
             departure_time=7200,
-            self.bulk_soc,
-            self.target_soc,
+            bulk_soc=self.bulk_soc,
+            target_soc=self.target_soc,
             ev_target_energy_request=RationalNumber(exponent=3, value=40),
             ev_max_energy_request=RationalNumber(exponent=1, value=6000),
             ev_min_energy_request=RationalNumber(exponent=0, value=-20000),
@@ -615,8 +615,8 @@ class RealBatterySimulator(EVControllerInterface):
                 ev_maximum_voltage_limit=self.dc_ev_charge_params.dc_max_voltage_limit,
                 ev_energy_capacity=self.dc_ev_charge_params.dc_energy_capacity,
                 ev_energy_request=ev_energy_request,
-                self.target_soc,
-                self.bulk_soc,
+                target_soc=self.target_soc,
+                bulk_soc=self.bulk_soc,
             )
 
         return ChargeParamsV2(mode, ac_charge_params, dc_charge_params)
