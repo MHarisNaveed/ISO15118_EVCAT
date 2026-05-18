@@ -169,6 +169,12 @@ class RealBatterySimulator(EVControllerInterface):
         self.precharge_loop_cycles: int = 0
         self.welding_detection_cycles: int = 0
 
+
+        #---
+        self.target_soc: float = 80.0   # stop charging here
+        self.bulk_soc: float = 70.0     # bulk complete threshold
+
+
         # ── ISO 15118-2 DC charge params (kept for protocol compatibility) ───
         self.dc_ev_charge_params: DCEVChargeParams = DCEVChargeParams(
             dc_max_current_limit=PVEVMaxCurrentLimit(
@@ -354,8 +360,8 @@ class RealBatterySimulator(EVControllerInterface):
         """Overrides EVControllerInterface.get_dynamic_se_params()."""
         return DynamicScheduleExchangeReqParams(
             departure_time=7200,
-            min_soc=30,
-            target_soc=80,
+            self.bulk_soc,
+            self.target_soc,
             ev_target_energy_request=RationalNumber(exponent=3, value=40),
             ev_max_energy_request=RationalNumber(exponent=1, value=6000),
             ev_min_energy_request=RationalNumber(exponent=0, value=-20000),
@@ -511,7 +517,7 @@ class RealBatterySimulator(EVControllerInterface):
 
     async def is_bulk_charging_complete(self) -> bool:
         """Overrides EVControllerInterface.is_bulk_charging_complete()."""
-        return self._soc >= 80.0
+        return self._soc >= self.bulk_soc
 
     async def get_remaining_time_to_full_soc(self) -> PVRemainingTimeToFullSOC:
         """
@@ -529,7 +535,7 @@ class RealBatterySimulator(EVControllerInterface):
 
     async def get_remaining_time_to_bulk_soc(self) -> PVRemainingTimeToBulkSOC:
         """Overrides EVControllerInterface.get_remaining_time_to_bulk_soc()."""
-        bulk_target = 80.0
+        bulk_target = self.bulk_soc
         gap = max(0.0, bulk_target - self._soc)
         remaining_energy_wh = (gap / 100.0) * self.total_battery_capacity_wh
         power = max(self._current_power_w, 1.0)
@@ -565,7 +571,7 @@ class RealBatterySimulator(EVControllerInterface):
         return DisplayParameters(
             present_soc=present_soc,
             min_soc=10,
-            target_soc=80,
+            target_soc=int(self.target_soc),   # was hardcoded 80
             charging_complete=await self.is_charging_complete(),
         )
 
@@ -609,8 +615,8 @@ class RealBatterySimulator(EVControllerInterface):
                 ev_maximum_voltage_limit=self.dc_ev_charge_params.dc_max_voltage_limit,
                 ev_energy_capacity=self.dc_ev_charge_params.dc_energy_capacity,
                 ev_energy_request=ev_energy_request,
-                full_soc=90,
-                bulk_soc=80,
+                self.target_soc,
+                self.bulk_soc,
             )
 
         return ChargeParamsV2(mode, ac_charge_params, dc_charge_params)
