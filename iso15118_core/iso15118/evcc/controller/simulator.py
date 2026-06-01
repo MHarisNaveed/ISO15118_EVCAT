@@ -153,14 +153,14 @@ class RealBatterySimulator(EVControllerInterface):
         self.charge_loop_delay_time: int = min(evcc_config.charge_loop_delay_time, 50)
 
         # ── Battery parameters (tunable) ─────────────────────────────────────
-        self.total_battery_capacity_wh: float = 2_00.0   # 0.2 kWh  → rapid SOC swing
-        self.max_voltage: float = 450.0                    # V at 100 % SOC
-        self.min_voltage: float = 300.0                    # V at   0 % SOC
-        self.max_charge_current: float = 32.0              # A
-        self.max_charge_power_w: float = 11_000.0          # W  (11 kW AC)
+        self.total_battery_capacity_wh: float = 500.0   # 0.2 kWh  → rapid SOC swing
+        self.max_voltage: float = 420.0                    # V at 100 % SOC
+        self.min_voltage: float = 320.0                    # V at   0 % SOC
+        self.max_charge_current: float = 20.0              # A
+        self.max_charge_power_w: float = 17000.0          # W  (17 kW AC)
 
         # ── Live battery state ───────────────────────────────────────────────
-        self._soc: float = 50.0                            # % — starting at 50 %
+        self._soc: float = 20.0                            # % — starting at 20 %
         self._current_power_w: float = self.max_charge_power_w  # W — default assumed
         self._last_update_time: float = time.time()
 
@@ -171,8 +171,8 @@ class RealBatterySimulator(EVControllerInterface):
 
 
         #---
-        self.target_soc: float = 80.0   # stop charging here
-        self.bulk_soc: float = 70.0     # bulk complete threshold
+        self.target_soc: float = 90.0   # stop charging here
+        self.bulk_soc: float = 80.0     # bulk complete threshold
 
 
         # ── ISO 15118-2 DC charge params (kept for protocol compatibility) ───
