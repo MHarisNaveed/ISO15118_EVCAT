@@ -5,7 +5,6 @@
     "supportedEnergyServices": [
         "DC"
     ],
-    "energyTransferMode": "DC_CORE",
     "isCertInstallNeeded": false,
     "useTls": true
 }
