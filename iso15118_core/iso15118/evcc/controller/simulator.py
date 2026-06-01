@@ -404,7 +404,16 @@ class RealBatterySimulator(EVControllerInterface):
     async def process_dynamic_se_params(
         self, dynamic_params: DynamicScheduleExchangeResParams, pause: bool
     ) -> Tuple[Optional[EVPowerProfile], ChargeProgressV20]:
-        """Overrides EVControllerInterface.process_dynamic_se_params()."""
+        """Overrides EVControllerInterface.process_dynamic_se_params().
+
+        Instead of always reporting a hardcoded 11 kW, this method:
+          1. Reads the station's departure_time and target_soc hints from
+             dynamic_params and updates internal targets if they differ.
+          2. Computes the EV's desired power as the minimum of the EV's own
+             max charge power and any power schedule the station provided.
+          3. Returns a single-entry EVPowerProfile covering the remaining
+             charge duration at that power level.
+        """
         is_ready = bool(random.getrandbits(1))
         if not is_ready:
             logger.debug("Dynamic SE params not yet ready — signalling ONGOING")
@@ -412,13 +421,49 @@ class RealBatterySimulator(EVControllerInterface):
 
         charge_progress = ChargeProgressV20.STOP if pause else ChargeProgressV20.START
 
+        # ── Sync EV targets with SECC hints ────────────────────────────────
+        if dynamic_params.target_soc is not None:
+            self.target_soc = float(dynamic_params.target_soc)
+        if dynamic_params.min_soc is not None:
+            self.bulk_soc = float(dynamic_params.min_soc)
+
+        # ── Derive request power from station schedule ─────────────────────
+        # Use the station power schedule if present; otherwise fall back to
+        # the EV's own maximum.
+        station_power_w: float = self.max_charge_power_w  # default
+        if dynamic_params.price_level_schedule is not None:
+            # Price level 1 = cheapest / most available — use full EV power.
+            # Higher levels mean grid stress — scale down proportionally.
+            entries = dynamic_params.price_level_schedule.schedule_entries.entries
+            if entries:
+                price_level = entries[0].price_level  # 1 = low, higher = expensive
+                num_levels = max(dynamic_params.price_level_schedule.num_price_levels, 1)
+                # Scale factor: price_level 1 → 100 %, max level → 50 % minimum
+                scale = max(0.5, 1.0 - 0.5 * (price_level - 1) / num_levels)
+                station_power_w = self.max_charge_power_w * scale
+
+        # Clamp to what the EV battery can actually accept
+        desired_power_w = min(station_power_w, self.max_charge_power_w)
+
+        # Update the battery physics engine with the negotiated power
+        self._current_power_w = desired_power_w
+
+        # Encode as RationalNumber with exponent=3 (kilowatt representation)
+        power_kw_int = round(desired_power_w / 1000.0)
+        departure_time = dynamic_params.departure_time or 3600
+
+        logger.info(
+            f"[EV] Dynamic profile: requested {desired_power_w:.0f} W, "
+            f"duration={departure_time} s, target_soc={self.target_soc}%"
+        )
+
         ev_power_profile = EVPowerProfile(
             time_anchor=0,
             entry_list=EVPowerScheduleEntryList(
                 entries=[
                     EVPowerScheduleEntry(
-                        duration=3600,
-                        power=RationalNumber(exponent=3, value=11),
+                        duration=departure_time,
+                        power=RationalNumber(exponent=3, value=power_kw_int),
                     )
                 ]
             ),
@@ -813,8 +858,44 @@ class RealBatterySimulator(EVControllerInterface):
         )
 
     async def get_dc_charge_params(self) -> DCEVChargeParams:
-        """Overrides EVControllerInterface.get_dc_charge_params()."""
-        return self.dc_ev_charge_params
+        """Overrides EVControllerInterface.get_dc_charge_params().
+
+        The static self.dc_ev_charge_params holds max/capacity limits that
+        never change. Only dc_target_current and dc_target_voltage are
+        recomputed here from the live battery state so the SECC receives an
+        accurate operating point every charge-parameter-discovery round.
+
+        Target voltage  = current open-circuit voltage (rises with SOC).
+        Target current  = P_max / V_present, clamped to max_charge_current.
+        """
+        voltage = self._compute_voltage()
+        # Clamp to avoid requesting more current than the battery can safely take
+        raw_current = self.max_charge_power_w / max(voltage, 1.0)
+        target_current = min(raw_current, self.max_charge_current)
+
+        logger.debug(
+            f"[Battery] DC charge params: V_target={voltage:.1f} V, "
+            f"I_target={target_current:.1f} A  (SOC={self._soc:.1f}%)"
+        )
+
+        # Return an updated copy — do NOT mutate self.dc_ev_charge_params in
+        # place because callers may hold a reference to the original object.
+        return DCEVChargeParams(
+            dc_max_current_limit=self.dc_ev_charge_params.dc_max_current_limit,
+            dc_max_power_limit=self.dc_ev_charge_params.dc_max_power_limit,
+            dc_max_voltage_limit=self.dc_ev_charge_params.dc_max_voltage_limit,
+            dc_energy_capacity=self.dc_ev_charge_params.dc_energy_capacity,
+            dc_target_current=PVEVTargetCurrent(
+                multiplier=0,
+                value=int(round(target_current)),
+                unit=UnitSymbol.AMPERE,
+            ),
+            dc_target_voltage=PVEVTargetVoltage(
+                multiplier=0,
+                value=int(round(voltage)),
+                unit=UnitSymbol.VOLTAGE,
+            ),
+        )
 
     # -----------------------------------------------------------------------
     # EVControllerInterface — DIN SPEC (NOT SUPPORTED)
