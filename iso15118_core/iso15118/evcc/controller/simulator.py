@@ -157,11 +157,13 @@ class RealBatterySimulator(EVControllerInterface):
         self.max_voltage: float = 420.0                    # V at 100 % SOC
         self.min_voltage: float = 320.0                    # V at   0 % SOC
         self.max_charge_current: float = 20.0              # A
-        self.max_charge_power_w: float = 17000.0          # W  (17 kW AC)
+        self.max_charge_power_w: float = 7000.0          # W  (17 kW AC)
 
         # ── Live battery state ───────────────────────────────────────────────
         self._soc: float = 20.0                            # % — starting at 20 %
-        self._current_power_w: float = self.max_charge_power_w  # W — default assumed
+        self._current_power_w: float = 0.0  # W — default assumed
+        self._secc_max_current: float = self.max_charge_current   # updated when SECC responds
+        self._secc_max_voltage: float = self.max_voltage
         self._last_update_time: float = time.time()
 
         # ── Session bookkeeping (preserved from SimEVController) ─────────────
@@ -776,7 +778,8 @@ class RealBatterySimulator(EVControllerInterface):
         """Overrides EVControllerInterface.get_scheduled_dc_charge_loop_params()."""
         self.update_battery_state(self._current_power_w)
         voltage = self._compute_voltage()
-        current = self._current_power_w / max(voltage, 1.0)
+        negotiated_power = min(self._current_power_w, self._secc_max_power_w)
+        current = negotiated_power / max(voltage, 1.0)
         return ScheduledDCChargeLoopReqParams(
             ev_target_current=_rational(current),
             ev_target_voltage=_rational(voltage),
@@ -871,7 +874,9 @@ class RealBatterySimulator(EVControllerInterface):
         voltage = self._compute_voltage()
         # Clamp to avoid requesting more current than the battery can safely take
         raw_current = self.max_charge_power_w / max(voltage, 1.0)
-        target_current = min(raw_current, self.max_charge_current)
+        # FIXED — also clamp against whatever the SECC told us:
+        secc_max_current = getattr(self, '_secc_max_charge_current', self.max_charge_current)
+        target_current = min(raw_current, self.max_charge_current, self._secc_max_current)
 
         logger.debug(
             f"[Battery] DC charge params: V_target={voltage:.1f} V, "
