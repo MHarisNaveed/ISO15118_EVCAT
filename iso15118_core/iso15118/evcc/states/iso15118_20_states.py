@@ -1383,6 +1383,17 @@ class DCChargeParameterDiscovery(StateEVCC):
         if not msg:
             return
 
+        # ── Feed SECC limits into EV controller ───────────────────────────
+        cp = msg.dc_params
+        self.comm_session.ev_controller.update_secc_limits(
+            max_current=cp.evse_max_charge_current.value * (10 ** cp.evse_max_charge_current.exponent),
+            max_voltage=cp.evse_max_voltage.value * (10 ** cp.evse_max_voltage.exponent),
+            max_power=cp.evse_max_charge_power.value * (10 ** cp.evse_max_charge_power.exponent),
+        )
+        # ──────────────────────────────────────────────────────────────────
+
+
+
         # TODO Act upon the possible negative response codes in dc_cpd_res
 
         self.comm_session.ongoing_schedule_exchange_req = (

@@ -193,11 +193,11 @@ def get_evse_context():
     # ── DC Charge-Parameter-Discovery limits ────────────────────────────────
     # 50 kW DC fast charger (500 V / 100 A)
     dc_limits = EVSEDCCPDLimits(
-        max_charge_power=10000,   # W
+        max_charge_power=30000,   # W
         min_charge_power=1000,    # W
-        max_charge_current=25,   # A
+        max_charge_current=80,   # A
         min_charge_current=1,     # A
-        max_voltage=430,          # V
+        max_voltage=500,          # V
         min_voltage=200,          # V
         # BPT discharge — same envelope
         max_discharge_power=50000,

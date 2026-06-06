@@ -154,10 +154,10 @@ class RealBatterySimulator(EVControllerInterface):
 
         # ── Battery parameters (tunable) ─────────────────────────────────────
         self.total_battery_capacity_wh: float = 500.0   # 0.2 kWh  → rapid SOC swing
-        self.max_voltage: float = 420.0                    # V at 100 % SOC
-        self.min_voltage: float = 320.0                    # V at   0 % SOC
-        self.max_charge_current: float = 20.0              # A
-        self.max_charge_power_w: float = 7000.0          # W  (17 kW AC)
+        self.max_voltage: float = 400.0                    # V at 100 % SOC
+        self.min_voltage: float = 300.0                    # V at   0 % SOC
+        self.max_charge_current: float = 15.0              # A
+        self.max_charge_power_w: float = 5000.0          # W  (17 kW AC)
 
         # ── Live battery state ───────────────────────────────────────────────
         self._soc: float = 20.0                            # % — starting at 20 %
@@ -602,6 +602,20 @@ class RealBatterySimulator(EVControllerInterface):
             f"[Battery] stop_charging() called — final SOC={self._soc:.2f} %"
         )
         self._charging_is_completed = True
+
+
+    def update_secc_limits(self, max_current: float, max_voltage: float, max_power: float):
+        """Called when DC_ChargeParameterDiscoveryRes arrives to store SECC limits."""
+        self._secc_max_current = min(max_current, self.max_charge_current)
+        self._secc_max_voltage = min(max_voltage, self.max_voltage)
+        self._secc_max_power_w = min(max_power, self.max_charge_power_w)
+        self._current_power_w = self._secc_max_power_w
+        logger.info(
+            f"[Battery] SECC limits accepted: "
+            f"P={self._secc_max_power_w:.0f}W, "
+            f"I={self._secc_max_current:.0f}A, "
+            f"V={self._secc_max_voltage:.0f}V"
+        )
 
     async def enable_charging(self, enabled: bool) -> None:
         """Overrides EVControllerInterface.enable_charging()."""
