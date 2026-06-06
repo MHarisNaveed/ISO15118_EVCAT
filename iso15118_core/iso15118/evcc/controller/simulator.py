@@ -154,10 +154,10 @@ class RealBatterySimulator(EVControllerInterface):
 
         # ── Battery parameters (tunable) ─────────────────────────────────────
         self.total_battery_capacity_wh: float = 500.0   # 0.2 kWh  → rapid SOC swing
-        self.max_voltage: float = 400.0                    # V at 100 % SOC
+        self.max_voltage: float = 500.0                    # V at 100 % SOC
         self.min_voltage: float = 300.0                    # V at   0 % SOC
-        self.max_charge_current: float = 15.0              # A
-        self.max_charge_power_w: float = 5000.0          # W  (17 kW AC)
+        self.max_charge_current: float = 60.0              # A
+        self.max_charge_power_w: float = 20000.0          # W  (17 kW AC)
 
         # ── Live battery state ───────────────────────────────────────────────
         self._soc: float = 20.0                            # % — starting at 20 %
