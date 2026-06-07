@@ -872,6 +872,27 @@ class ServiceSelection(StateSECC):
         # TODO Implement [V2G20-1956] and [V2G20-1644] (ServiceRenegotiationSupported)
         # TODO Check for [V2G20-1985]
 
+        # ── Battery Health Test activation ────────────────────────────────────
+        selected_service = self.comm_session.selected_energy_service
+        if selected_service and selected_service.service == ServiceV20.DC_BPT:
+            ps = selected_service.parameter_set
+            if ps and any(
+                p.name == "TestMode" and p.int_value == 1
+                for p in ps.parameters
+            ):
+                c_rate = 5.0
+                cutoff_soc = 20
+                for p in ps.parameters:
+                    if p.name == "TestCRate" and p.int_value:
+                        c_rate = float(p.int_value)
+                    if p.name == "CutoffSOC" and p.int_value:
+                        cutoff_soc = p.int_value
+                self.comm_session.evse_controller.activate_health_test(
+                    c_rate=c_rate, cutoff_soc=cutoff_soc
+                )
+        # ──────────────────────────────────────────────────────────────────────
+
+
         return True, "", None
 
 
@@ -1794,6 +1815,14 @@ class DCChargeLoop(StateSECC):
         ev_data_context.update_dc_charge_loop_parameters_v20(
             dc_charge_loop_req, selected_energy_service, control_mode
         )
+
+        # ── Battery Health Test: per-cycle telemetry recording ────────────────
+        evse_ctrl = self.comm_session.evse_controller
+        if getattr(evse_ctrl, "_health_test_active", False):
+            evse_ctrl.record_health_cycle()
+        # ──────────────────────────────────────────────────────────────────────
+
+        
         try:
             ev_target_voltage = None
             ev_target_current = None

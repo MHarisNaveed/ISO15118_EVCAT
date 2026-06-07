@@ -1,11 +1,12 @@
 {
-	"supportedProtocols": [
-		"ISO_15118_20_DC"
-	],
-	"supportedEnergyServices": [
-		"DC_BPT"
-	],
-	"isCertInstallNeeded": false,
-	"useTls": false,
-	"chargeLoopCycle": 10
+    "supportedProtocols": [
+        "ISO_15118_20_DC"
+    ],
+    "supportedEnergyServices": [
+        "DC_BPT"
+    ],
+    "isCertInstallNeeded": false,
+    "useTls": false,
+    "chargeLoopCycle": 10,
+    "chargeLoopDelayTime": 3
 }

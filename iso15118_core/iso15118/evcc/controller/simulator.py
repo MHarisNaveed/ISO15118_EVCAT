@@ -153,28 +153,33 @@ class RealBatterySimulator(EVControllerInterface):
         self.charge_loop_delay_time: int = min(evcc_config.charge_loop_delay_time, 50)
 
         # ── Battery parameters (tunable) ─────────────────────────────────────
-        self.total_battery_capacity_wh: float = 500.0   # 0.2 kWh  → rapid SOC swing
-        self.max_voltage: float = 500.0                    # V at 100 % SOC
+        self.total_battery_capacity_wh: float = 50.0   # 0.2 kWh  → rapid SOC swing
+        self.max_voltage: float = 450.0                    # V at 100 % SOC
         self.min_voltage: float = 300.0                    # V at   0 % SOC
-        self.max_charge_current: float = 60.0              # A
-        self.max_charge_power_w: float = 20000.0          # W  (17 kW AC)
+        self.max_charge_current: float = 32.0              # A
+        self.max_charge_power_w: float = 11_000.0          # W  (11 kW AC)
 
         # ── Live battery state ───────────────────────────────────────────────
-        self._soc: float = 20.0                            # % — starting at 20 %
-        self._current_power_w: float = 0.0  # W — default assumed
-        self._secc_max_current: float = self.max_charge_current   # updated when SECC responds
-        self._secc_max_voltage: float = self.max_voltage
+        self._soc: float = 90.0                            # % — starting at 50 %
+        self._current_power_w: float = self.max_charge_power_w  # W — default assumed
         self._last_update_time: float = time.time()
 
         # ── Session bookkeeping (preserved from SimEVController) ─────────────
         self._charging_is_completed: bool = False
+        # ── Battery Health Test state ──────────────────────────────────────
+        self._health_test_active: bool = False
+        self._health_phase: str = "CHARGE"   # "CHARGE" | "DISCHARGE"
+        self._health_c_rate: float = 5.0
+        self._health_cutoff_soc: int = 20
+        self._health_discharge_current_a: float = 0.0
+        # ──────────────────────────────────────────────────────────────────
         self.precharge_loop_cycles: int = 0
         self.welding_detection_cycles: int = 0
 
 
         #---
-        self.target_soc: float = 90.0   # stop charging here
-        self.bulk_soc: float = 80.0     # bulk complete threshold
+        self.target_soc: float = 100.0   # stop charging here
+        self.bulk_soc: float = 70.0     # bulk complete threshold
 
 
         # ── ISO 15118-2 DC charge params (kept for protocol compatibility) ───
@@ -293,7 +298,44 @@ class RealBatterySimulator(EVControllerInterface):
     async def select_energy_service_v20(
         self, services: List[MatchedService]
     ) -> SelectedEnergyService:
-        """Overrides EVControllerInterface.select_energy_service_v20()."""
+        """Overrides EVControllerInterface.select_energy_service_v20().
+
+        If DC_BPT is offered with a ParameterSet containing TestMode=1
+        (HealthDischarge), select that set and activate the health test.
+        Otherwise pick the first available service as before.
+        """
+        # Look for a health test parameter set in DC_BPT services
+        for matched in services:
+            if matched.service == ServiceV20.DC_BPT:
+                for ps in matched.parameter_sets:
+                    for param in ps.parameters:
+                        if param.name == "TestMode" and param.int_value == 1:
+                            # Found health test parameter set — activate
+                            c_rate = 5.0
+                            cutoff_soc = 20
+                            for p2 in ps.parameters:
+                                if p2.name == "TestCRate" and p2.int_value:
+                                    c_rate = float(p2.int_value)
+                                if p2.name == "CutoffSOC" and p2.int_value:
+                                    cutoff_soc = p2.int_value
+                            # Capacity_Ah = capacity_Wh / nominal_V
+                            capacity_ah = self.total_battery_capacity_wh / 400.0
+                            self._health_discharge_current_a = -(c_rate * capacity_ah)
+                            self._health_cutoff_soc = cutoff_soc
+                            self._health_c_rate = c_rate
+                            self._health_test_active = True
+                            self._health_phase = "CHARGE"   # always charge first
+                            logger.info(
+                                f"[HealthTest] Activated — C-rate={c_rate}C, "
+                                f"I_discharge={self._health_discharge_current_a:.1f}A, "
+                                f"cutoff_soc={cutoff_soc}%"
+                            )
+                            return SelectedEnergyService(
+                                service=matched.service,
+                                is_free=matched.is_free,
+                                parameter_set=ps,
+                            )
+        # Default: pick first offered service
         top = services[0]
         return SelectedEnergyService(
             service=top.service,
@@ -406,16 +448,7 @@ class RealBatterySimulator(EVControllerInterface):
     async def process_dynamic_se_params(
         self, dynamic_params: DynamicScheduleExchangeResParams, pause: bool
     ) -> Tuple[Optional[EVPowerProfile], ChargeProgressV20]:
-        """Overrides EVControllerInterface.process_dynamic_se_params().
-
-        Instead of always reporting a hardcoded 11 kW, this method:
-          1. Reads the station's departure_time and target_soc hints from
-             dynamic_params and updates internal targets if they differ.
-          2. Computes the EV's desired power as the minimum of the EV's own
-             max charge power and any power schedule the station provided.
-          3. Returns a single-entry EVPowerProfile covering the remaining
-             charge duration at that power level.
-        """
+        """Overrides EVControllerInterface.process_dynamic_se_params()."""
         is_ready = bool(random.getrandbits(1))
         if not is_ready:
             logger.debug("Dynamic SE params not yet ready — signalling ONGOING")
@@ -423,49 +456,13 @@ class RealBatterySimulator(EVControllerInterface):
 
         charge_progress = ChargeProgressV20.STOP if pause else ChargeProgressV20.START
 
-        # ── Sync EV targets with SECC hints ────────────────────────────────
-        if dynamic_params.target_soc is not None:
-            self.target_soc = float(dynamic_params.target_soc)
-        if dynamic_params.min_soc is not None:
-            self.bulk_soc = float(dynamic_params.min_soc)
-
-        # ── Derive request power from station schedule ─────────────────────
-        # Use the station power schedule if present; otherwise fall back to
-        # the EV's own maximum.
-        station_power_w: float = self.max_charge_power_w  # default
-        if dynamic_params.price_level_schedule is not None:
-            # Price level 1 = cheapest / most available — use full EV power.
-            # Higher levels mean grid stress — scale down proportionally.
-            entries = dynamic_params.price_level_schedule.schedule_entries.entries
-            if entries:
-                price_level = entries[0].price_level  # 1 = low, higher = expensive
-                num_levels = max(dynamic_params.price_level_schedule.num_price_levels, 1)
-                # Scale factor: price_level 1 → 100 %, max level → 50 % minimum
-                scale = max(0.5, 1.0 - 0.5 * (price_level - 1) / num_levels)
-                station_power_w = self.max_charge_power_w * scale
-
-        # Clamp to what the EV battery can actually accept
-        desired_power_w = min(station_power_w, self.max_charge_power_w)
-
-        # Update the battery physics engine with the negotiated power
-        self._current_power_w = desired_power_w
-
-        # Encode as RationalNumber with exponent=3 (kilowatt representation)
-        power_kw_int = round(desired_power_w / 1000.0)
-        departure_time = dynamic_params.departure_time or 3600
-
-        logger.info(
-            f"[EV] Dynamic profile: requested {desired_power_w:.0f} W, "
-            f"duration={departure_time} s, target_soc={self.target_soc}%"
-        )
-
         ev_power_profile = EVPowerProfile(
             time_anchor=0,
             entry_list=EVPowerScheduleEntryList(
                 entries=[
                     EVPowerScheduleEntry(
-                        duration=departure_time,
-                        power=RationalNumber(exponent=3, value=power_kw_int),
+                        duration=3600,
+                        power=RationalNumber(exponent=3, value=11),
                     )
                 ]
             ),
@@ -559,7 +556,35 @@ class RealBatterySimulator(EVControllerInterface):
         return False
 
     async def is_charging_complete(self) -> bool:
-        """Overrides EVControllerInterface.is_charging_complete()."""
+        """Overrides EVControllerInterface.is_charging_complete().
+
+        During a health test:
+          CHARGE phase: complete when SOC reaches 100% → switch to DISCHARGE
+          DISCHARGE phase: complete when SOC falls to cutoff_soc
+        Normal session: complete when SOC reaches target_soc.
+        """
+        if self._health_test_active:
+            if self._health_phase == "CHARGE":
+                if self._soc >= 100.0:
+                    # Phase transition — switch to discharge
+                    logger.info(
+                        "[HealthTest] Phase 1 CHARGE complete — SOC=100%. "
+                        "Switching to DISCHARGE phase."
+                    )
+                    self._health_phase = "DISCHARGE"
+                    # Reset power to discharge value so battery physics work
+                    capacity_ah = self.total_battery_capacity_wh / 400.0
+                    self._current_power_w = -(self._health_c_rate * capacity_ah * 400.0)
+                return False   # keep session alive for discharge phase
+            elif self._health_phase == "DISCHARGE":
+                if self._soc <= self._health_cutoff_soc:
+                    logger.info(
+                        f"[HealthTest] Phase 2 DISCHARGE complete — "
+                        f"SOC={self._soc:.1f}% reached cutoff={self._health_cutoff_soc}%"
+                    )
+                    self._charging_is_completed = True
+                    return True
+                return False
         return self._soc >= self.target_soc or self._charging_is_completed
 
     async def is_bulk_charging_complete(self) -> bool:
@@ -792,8 +817,7 @@ class RealBatterySimulator(EVControllerInterface):
         """Overrides EVControllerInterface.get_scheduled_dc_charge_loop_params()."""
         self.update_battery_state(self._current_power_w)
         voltage = self._compute_voltage()
-        negotiated_power = min(self._current_power_w, self._secc_max_power_w)
-        current = negotiated_power / max(voltage, 1.0)
+        current = self._current_power_w / max(voltage, 1.0)
         return ScheduledDCChargeLoopReqParams(
             ev_target_current=_rational(current),
             ev_target_voltage=_rational(voltage),
@@ -820,7 +844,37 @@ class RealBatterySimulator(EVControllerInterface):
     async def get_bpt_scheduled_dc_charge_loop_params(
         self,
     ) -> BPTScheduledDCChargeLoopReqParams:
-        """Overrides EVControllerInterface.get_bpt_scheduled_dc_charge_loop_params()."""
+        """Overrides EVControllerInterface.get_bpt_scheduled_dc_charge_loop_params().
+
+        During a health test DISCHARGE phase, sends negative target_current so
+        the SECC knows the battery is discharging. During CHARGE phase (or normal
+        sessions) behaves identically to before.
+        """
+        if self._health_test_active and self._health_phase == "DISCHARGE":
+            voltage = self._compute_voltage()
+            i_discharge = self._health_discharge_current_a  # already negative
+
+            # Update battery physics with discharge power
+            discharge_power_w = abs(i_discharge * voltage)
+            self._current_power_w = -discharge_power_w   # negative = discharging
+
+            logger.info(
+                f"[HealthTest] DISCHARGE | SOC={self._soc:.1f}% "
+                f"V={voltage:.1f}V I={i_discharge:.1f}A P={discharge_power_w:.0f}W"
+            )
+            return BPTScheduledDCChargeLoopReqParams(
+                ev_target_current=RationalNumber.get_rational_repr(int(i_discharge)),
+                ev_target_voltage=RationalNumber.get_rational_repr(int(voltage)),
+                ev_max_discharge_power=RationalNumber.get_rational_repr(
+                    int(discharge_power_w)
+                ),
+                ev_min_discharge_power=RationalNumber.get_rational_repr(0),
+                ev_max_discharge_current=RationalNumber.get_rational_repr(
+                    int(abs(i_discharge))
+                ),
+            )
+
+        # Normal charge or health test CHARGE phase — use base scheduled params
         base = (await self.get_scheduled_dc_charge_loop_params()).dict()
         return BPTScheduledDCChargeLoopReqParams(**base)
 
@@ -875,46 +929,8 @@ class RealBatterySimulator(EVControllerInterface):
         )
 
     async def get_dc_charge_params(self) -> DCEVChargeParams:
-        """Overrides EVControllerInterface.get_dc_charge_params().
-
-        The static self.dc_ev_charge_params holds max/capacity limits that
-        never change. Only dc_target_current and dc_target_voltage are
-        recomputed here from the live battery state so the SECC receives an
-        accurate operating point every charge-parameter-discovery round.
-
-        Target voltage  = current open-circuit voltage (rises with SOC).
-        Target current  = P_max / V_present, clamped to max_charge_current.
-        """
-        voltage = self._compute_voltage()
-        # Clamp to avoid requesting more current than the battery can safely take
-        raw_current = self.max_charge_power_w / max(voltage, 1.0)
-        # FIXED — also clamp against whatever the SECC told us:
-        secc_max_current = getattr(self, '_secc_max_charge_current', self.max_charge_current)
-        target_current = min(raw_current, self.max_charge_current, self._secc_max_current)
-
-        logger.debug(
-            f"[Battery] DC charge params: V_target={voltage:.1f} V, "
-            f"I_target={target_current:.1f} A  (SOC={self._soc:.1f}%)"
-        )
-
-        # Return an updated copy — do NOT mutate self.dc_ev_charge_params in
-        # place because callers may hold a reference to the original object.
-        return DCEVChargeParams(
-            dc_max_current_limit=self.dc_ev_charge_params.dc_max_current_limit,
-            dc_max_power_limit=self.dc_ev_charge_params.dc_max_power_limit,
-            dc_max_voltage_limit=self.dc_ev_charge_params.dc_max_voltage_limit,
-            dc_energy_capacity=self.dc_ev_charge_params.dc_energy_capacity,
-            dc_target_current=PVEVTargetCurrent(
-                multiplier=0,
-                value=int(round(target_current)),
-                unit=UnitSymbol.AMPERE,
-            ),
-            dc_target_voltage=PVEVTargetVoltage(
-                multiplier=0,
-                value=int(round(voltage)),
-                unit=UnitSymbol.VOLTAGE,
-            ),
-        )
+        """Overrides EVControllerInterface.get_dc_charge_params()."""
+        return self.dc_ev_charge_params
 
     # -----------------------------------------------------------------------
     # EVControllerInterface — DIN SPEC (NOT SUPPORTED)
