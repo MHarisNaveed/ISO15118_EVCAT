@@ -334,7 +334,7 @@ class RealBatterySimulator(EVControllerInterface):
                     return [SelectedVAS(
                         service=matched.service,
                         is_free=matched.is_free,
-                        parameter_set=matched.parameter_sets[0],
+                        parameter_set=matched.parameter_sets[0] if matched.parameter_sets else None,
                     )]
             logger.warning(
                 f"[EVCC] Requested diagnostic service_id={target_id} "
@@ -347,7 +347,7 @@ class RealBatterySimulator(EVControllerInterface):
             SelectedVAS(
                 service=s.service,
                 is_free=s.is_free,
-                parameter_set=s.parameter_sets[0],
+                parameter_set=s.parameter_sets[0] if s.parameter_sets else None,
             )
             for s in vas_only
         ]

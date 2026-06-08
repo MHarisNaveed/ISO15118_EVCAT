@@ -603,6 +603,10 @@ class SimEVSEController(EVSEControllerInterface):
 
         return service_list
 
+    def get_vas_list(self, supported_service_ids=None):
+        """Advertises diagnostic VAS services from the ServiceRegistry."""
+        return self.service_registry.get_vas_list()
+
     def is_eim_authorized(self) -> bool:
         """Overrides EVSEControllerInterface.is_eim_authorized()."""
         return False

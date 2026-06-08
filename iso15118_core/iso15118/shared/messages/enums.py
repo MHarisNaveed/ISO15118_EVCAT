@@ -332,6 +332,7 @@ class ServiceV20(Enum):
     DC_ACDP_BPT = 7
     INTERNET = 65
     PARKING_STATUS = 66
+    BATTERY_HEALTH_TEST = 101
 
     @classmethod
     def get_by_id(cls, service_id):

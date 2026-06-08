@@ -609,7 +609,7 @@ class ServiceDiscovery(StateSECC):
         Returns:
             A list of offered value-added services, or None, if none are offered.
         """
-        return None
+        return self.comm_session.evse_controller.get_vas_list(supported_service_ids)
 
 
 class ServiceDetail(StateSECC):

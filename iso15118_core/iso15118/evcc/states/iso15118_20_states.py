@@ -639,7 +639,8 @@ class ServiceDetail(StateEVCC):
         for vas in self.comm_session.selected_vas_list_v20:
             selected_vas_list.append(
                 SelectedService(
-                    service_id=vas.service.id, parameter_set_id=vas.parameter_set.id
+                    service_id=vas.service.id,
+                    parameter_set_id=vas.parameter_set.id if vas.parameter_set else 1,
                 )
             )
 
