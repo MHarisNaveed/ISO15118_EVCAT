@@ -74,6 +74,10 @@ class EVCCConfig(BaseModel):
     # charge loop cycle delay before next cycle
     charge_loop_delay_time: Optional[int] = Field(3, alias="chargeLoopDelay")
 
+    # Diagnostic service to run (0 = normal charge session, 101 = BatteryHealthTest)
+    # Set in evcc_config_dc_bpt.json as "diagnosticServiceId": 101
+    diagnostic_service_id: Optional[int] = Field(0, alias="diagnosticServiceId")
+
     def load_raw_values(self):
         # conversion of list of strings to enum types.
         self.supported_energy_services = load_requested_energy_services(

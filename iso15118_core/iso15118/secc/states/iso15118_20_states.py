@@ -872,6 +872,15 @@ class ServiceSelection(StateSECC):
         # TODO Implement [V2G20-1956] and [V2G20-1644] (ServiceRenegotiationSupported)
         # TODO Check for [V2G20-1985]
 
+        # ── Diagnostic VAS activation — delegate to ServiceRegistry ───────────
+        if service_req.selected_vas_list:
+            for vas in service_req.selected_vas_list.selected_services:
+                self.comm_session.evse_controller.service_registry.on_service_selected(
+                    vas.service_id, vas.parameter_set
+                )
+        # ──────────────────────────────────────────────────────────────────────
+
+
         return True, "", None
 
 
@@ -1794,6 +1803,15 @@ class DCChargeLoop(StateSECC):
         ev_data_context.update_dc_charge_loop_parameters_v20(
             dc_charge_loop_req, selected_energy_service, control_mode
         )
+
+        # ── Diagnostic VAS: per-cycle hook ────────────────────────────────────
+        self.comm_session.evse_controller.service_registry.on_cycle(
+            ev_data_context,
+            self.comm_session.evse_controller.evse_data_context,
+        )
+        # ──────────────────────────────────────────────────────────────────────
+
+
         try:
             ev_target_voltage = None
             ev_target_current = None

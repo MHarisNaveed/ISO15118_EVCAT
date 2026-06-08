@@ -163,6 +163,13 @@ from iso15118.shared.states import State
 
 logger = logging.getLogger(__name__)
 
+# ── Battery Diagnostics ───────────────────────────────────────────────────
+from iso15118.shared.battery_diagnostics import ServiceRegistry, BatterySimulator
+from iso15118.shared.battery_diagnostics.services.health_test import BatteryHealthService
+# ─────────────────────────────────────────────────────────────────────────
+
+
+
 
 def get_evse_context():
     """
@@ -275,6 +282,13 @@ class SimEVSEController(EVSEControllerInterface):
         self.ev_data_context = EVDataContext()
         self.evse_data_context = get_evse_context()
 
+        # ── Diagnostic service registry ────────────────────────────────────
+        self.service_registry = ServiceRegistry(battery=BatterySimulator())
+        self.service_registry.register(BatteryHealthService())
+        # To add more tests later:  self.service_registry.register(EISService())
+        # ──────────────────────────────────────────────────────────────────
+
+        
     def reset_ev_data_context(self):
         self.ev_data_context = EVDataContext()
 
@@ -525,6 +539,16 @@ class SimEVSEController(EVSEControllerInterface):
                 f"No ServiceParameterList available for service ID {service_id}"
             )
             raise e
+        #######
+        # ── Diagnostic VAS: delegate to ServiceRegistry ───────────────────────
+        # If service_id belongs to a diagnostic service (e.g. 101, 102, 103),
+        # the registry returns its own ServiceParameterList and we return that.
+        # Energy service IDs (1,2,5,6) return None from the registry → fall through.
+        vas_params = self.service_registry.get_parameter_list(service_id)
+        if vas_params is not None:
+            return vas_params
+        # ──────────────────────────────────────────────────────────────────────
+
 
         return ServiceParameterList(parameter_sets=parameter_sets_list)
 
@@ -1146,10 +1170,10 @@ class SimEVSEController(EVSEControllerInterface):
 
         @param current_state: The current SDP/SAP/DIN/ISO15118-2/ISO15118-20 state.
         @param reason: Reason for ending the session.
-        @param last_message: The last message that was either sent/received.
         """
         logger.info(f"Session ended in {current_state} ({reason}).")
-
+        self.service_registry.on_end()
+   
     async def send_display_params(self):
         """
         Share display params with CS.

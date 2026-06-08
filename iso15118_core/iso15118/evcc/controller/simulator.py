@@ -168,7 +168,14 @@ class RealBatterySimulator(EVControllerInterface):
 
         # ── Session bookkeeping (preserved from SimEVController) ─────────────
         self._charging_is_completed: bool = False
+        # ── Diagnostic service state (driven by evcc_config.diagnosticServiceId) ─
+        self._diag_active: bool = False
+        self._diag_phase: str = "CHARGE"         # "CHARGE" | "DISCHARGE"
+        self._diag_discharge_i_a: float = 0.0    # operative discharge current (A)
+        self._diag_cutoff_soc: int = 20           # % SOC to stop discharge
+        # ─────────────────────────────────────────────────────────────────────
         self.precharge_loop_cycles: int = 0
+
         self.welding_detection_cycles: int = 0
 
 
@@ -293,7 +300,10 @@ class RealBatterySimulator(EVControllerInterface):
     async def select_energy_service_v20(
         self, services: List[MatchedService]
     ) -> SelectedEnergyService:
-        """Overrides EVControllerInterface.select_energy_service_v20()."""
+        """Overrides EVControllerInterface.select_energy_service_v20().
+        Always picks the first offered service — diagnostic tests run as VAS,
+        not as a special energy service parameter set.
+        """
         top = services[0]
         return SelectedEnergyService(
             service=top.service,
@@ -304,8 +314,35 @@ class RealBatterySimulator(EVControllerInterface):
     async def select_vas_services_v20(
         self, services: List[MatchedService]
     ) -> Optional[List[SelectedVAS]]:
-        """Overrides EVControllerInterface.select_vas_services_v20()."""
+        """Overrides EVControllerInterface.select_vas_services_v20().
+
+        If evcc_config.diagnostic_service_id is set, select that VAS and
+        activate the diagnostic state machine.
+        Otherwise select all offered VAS (original behaviour).
+        """
         vas_only = [s for s in services if not s.is_energy_service]
+        if not vas_only:
+            return []
+
+        target_id = getattr(self.config, "diagnostic_service_id", 0) or 0
+
+        if target_id:
+            # Select only the requested diagnostic service
+            for matched in vas_only:
+                if matched.service.id == target_id:
+                    self._activate_diagnostic(matched)
+                    return [SelectedVAS(
+                        service=matched.service,
+                        is_free=matched.is_free,
+                        parameter_set=matched.parameter_sets[0],
+                    )]
+            logger.warning(
+                f"[EVCC] Requested diagnostic service_id={target_id} "
+                "not offered by SECC — running normal charge session"
+            )
+            return []
+
+        # No specific diagnostic requested — select all VAS (original behaviour)
         return [
             SelectedVAS(
                 service=s.service,
@@ -314,6 +351,45 @@ class RealBatterySimulator(EVControllerInterface):
             )
             for s in vas_only
         ]
+
+    def _activate_diagnostic(self, matched) -> None:
+        """
+        Parse VAS parameters and set operative discharge current.
+        Called once when the EVCC selects a diagnostic VAS.
+        The SECC (ServiceRegistry) owns the test logic — this side only
+        knows enough to drive the charge loop correctly.
+        """
+        self._diag_active = True
+        self._diag_phase  = "CHARGE"
+
+        ps = matched.parameter_sets[0] if matched.parameter_sets else None
+        c_rate    = 5.0
+        cutoff    = 20
+        max_i_secc = 50.0
+
+        if ps:
+            for p in ps.parameters:
+                if p.name == "RequestedCRate" and p.int_value:
+                    c_rate = float(p.int_value)
+                elif p.name == "MaxTestCurrentA" and p.int_value:
+                    max_i_secc = float(p.int_value)
+                elif p.name == "CutoffSOC" and p.int_value:
+                    cutoff = p.int_value
+
+        capacity_ah  = self.total_battery_capacity_wh / max(self._compute_voltage(), 1.0)
+        requested_i  = c_rate * capacity_ah
+        # Operative = min(requested, SECC hardware limit, EV battery limit)
+        operative_i  = min(requested_i, max_i_secc, self.max_charge_current)
+
+        self._diag_discharge_i_a = operative_i   # stored as positive; sign applied later
+        self._diag_cutoff_soc    = cutoff
+
+        logger.info(
+            f"[EVCC Diagnostic] Activated — service_id={matched.service.id} "
+            f"C-rate={c_rate}C requested_I={requested_i:.2f}A "
+            f"operative_I={operative_i:.2f}A cutoff_soc={cutoff}%"
+        )
+
 
     async def get_scheduled_se_params(
         self, selected_energy_service: SelectedEnergyService
@@ -559,9 +635,35 @@ class RealBatterySimulator(EVControllerInterface):
         return False
 
     async def is_charging_complete(self) -> bool:
-        """Overrides EVControllerInterface.is_charging_complete()."""
-        return self._soc >= self.target_soc or self._charging_is_completed
+        """Overrides EVControllerInterface.is_charging_complete().
 
+        During a diagnostic session:
+          CHARGE phase: keep running until SOC=100, then switch to DISCHARGE
+          DISCHARGE phase: stop when SOC ≤ cutoff_soc
+        Normal session: stop when SOC ≥ target_soc.
+        """
+        if self._diag_active:
+            if self._diag_phase == "CHARGE":
+                if self._soc >= 100.0:
+                    logger.info(
+                        "[EVCC Diagnostic] Charge complete — SOC=100%. "
+                        "Switching to DISCHARGE."
+                    )
+                    self._diag_phase = "DISCHARGE"
+                    self._current_power_w = -(
+                        self._diag_discharge_i_a * self._compute_voltage()
+                    )
+                return False
+            elif self._diag_phase == "DISCHARGE":
+                if self._soc <= self._diag_cutoff_soc:
+                    logger.info(
+                        f"[EVCC Diagnostic] Discharge complete — "
+                        f"SOC={self._soc:.1f}% ≤ cutoff={self._diag_cutoff_soc}%"
+                    )
+                    self._charging_is_completed = True
+                    return True
+                return False
+        return self._soc >= self.target_soc or self._charging_is_completed
     async def is_bulk_charging_complete(self) -> bool:
         """Overrides EVControllerInterface.is_bulk_charging_complete()."""
         return self._soc >= self.bulk_soc
@@ -820,7 +922,34 @@ class RealBatterySimulator(EVControllerInterface):
     async def get_bpt_scheduled_dc_charge_loop_params(
         self,
     ) -> BPTScheduledDCChargeLoopReqParams:
-        """Overrides EVControllerInterface.get_bpt_scheduled_dc_charge_loop_params()."""
+        """Overrides EVControllerInterface.get_bpt_scheduled_dc_charge_loop_params().
+
+        During diagnostic DISCHARGE phase: sends negative target_current.
+        During CHARGE phase or normal sessions: delegates to scheduled DC params.
+        """
+        if self._diag_active and self._diag_phase == "DISCHARGE":
+            voltage      = self._compute_voltage()
+            i_discharge  = -self._diag_discharge_i_a   # negative = discharging
+            discharge_pw = abs(i_discharge * voltage)
+            self._current_power_w = -discharge_pw
+
+            logger.info(
+                f"[EVCC Diagnostic] DISCHARGE | SOC={self._soc:.1f}% "
+                f"V={voltage:.1f}V I={i_discharge:.1f}A P={discharge_pw:.0f}W"
+            )
+            return BPTScheduledDCChargeLoopReqParams(
+                ev_target_current=RationalNumber.get_rational_repr(int(i_discharge)),
+                ev_target_voltage=RationalNumber.get_rational_repr(int(voltage)),
+                ev_max_discharge_power=RationalNumber.get_rational_repr(
+                    int(discharge_pw)
+                ),
+                ev_min_discharge_power=RationalNumber.get_rational_repr(0),
+                ev_max_discharge_current=RationalNumber.get_rational_repr(
+                    int(self._diag_discharge_i_a)
+                ),
+            )
+
+        # Charge phase or normal session
         base = (await self.get_scheduled_dc_charge_loop_params()).dict()
         return BPTScheduledDCChargeLoopReqParams(**base)
 
