@@ -1384,7 +1384,7 @@ class DCChargeParameterDiscovery(StateEVCC):
             return
 
         # ── Feed SECC limits into EV controller ───────────────────────────
-        cp = msg.dc_params
+        cp = msg.dc_params or msg.bpt_dc_params
         self.comm_session.ev_controller.update_secc_limits(
             max_current=cp.evse_max_charge_current.value * (10 ** cp.evse_max_charge_current.exponent),
             max_voltage=cp.evse_max_voltage.value * (10 ** cp.evse_max_voltage.exponent),
