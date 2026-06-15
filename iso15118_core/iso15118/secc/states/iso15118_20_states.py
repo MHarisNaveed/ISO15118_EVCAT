@@ -563,13 +563,14 @@ class ServiceDiscovery(StateSECC):
         offered_vas = self.get_vas_list(service_discovery_req.supported_service_ids)
         if offered_vas:
             for vas in offered_vas.services:
+                vas_param_list = self.comm_session.evse_controller.service_registry.get_parameter_list(vas.service_id)
+                vas_param_sets = vas_param_list.parameter_sets if vas_param_list else []
                 self.comm_session.matched_services_v20.append(
                     MatchedService(
                         service=ServiceV20.get_by_id(vas.service_id),
                         is_energy_service=False,
                         is_free=vas.free_service,
-                        # Parameter sets are available with ServiceDetailRes
-                        parameter_sets=[],
+                        parameter_sets=vas_param_sets,
                     )
                 )
 
@@ -876,7 +877,7 @@ class ServiceSelection(StateSECC):
         if service_req.selected_vas_list:
             for vas in service_req.selected_vas_list.selected_services:
                 self.comm_session.evse_controller.service_registry.on_service_selected(
-                    vas.service_id, vas.parameter_set
+                    vas.service_id, vas.parameter_set_id
                 )
         # ──────────────────────────────────────────────────────────────────────
 

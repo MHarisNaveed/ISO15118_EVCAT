@@ -102,6 +102,13 @@ class ServiceRegistry:
             )
             return
         self._active = service
+        # Resolve parameter set — may arrive as int ID or ParameterSet object
+        if isinstance(parameter_set, int):
+            param_list = service.get_parameter_list()
+            parameter_set = next(
+                (ps for ps in param_list.parameter_sets if ps.id == parameter_set),
+                None,
+            )
         service.on_selected(parameter_set, self._battery)
         logger.info(
             f"[ServiceRegistry] Active service: {service.NAME} (id={service_id})"
