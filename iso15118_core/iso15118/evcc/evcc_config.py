@@ -50,7 +50,7 @@ class EVCCConfig(BaseModel):
     # to the enum value Security.TLS.
     # If the USE_TLS setting is set to False and ENFORCE_TLS is set to True, then
     # ENFORCE_TLS overrules USE_TLS.
-    enforce_tls: bool = Field(False, alias="enforceTls")
+    enforce_tls: bool = Field(True, alias="enforceTls")
     # Supported protocols, used for SupportedAppProtocol (SAP). The order in which
     # the protocols are listed here determines the priority (i.e. first list entry
     # the protocols are listed here determines the priority (i.e. first list entry

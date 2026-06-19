@@ -6,7 +6,7 @@
 		"DC_BPT"
 	],
 	"isCertInstallNeeded": false,
-	"useTls": false,
+	"useTls": true,
 	"chargeLoopDelayTime": 3,
     "diagnosticServiceId": 101
 }

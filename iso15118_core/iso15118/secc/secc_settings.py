@@ -18,7 +18,7 @@ class Config:
     iface: Optional[str] = None
     log_level: Optional[str] = None
     evse_controller: Type[EVSEControllerInterface] = None
-    enforce_tls: bool = False
+    enforce_tls: bool = True
     free_charging_service: bool = False
     free_cert_install_service: bool = True
     allow_cert_install_service: bool = True

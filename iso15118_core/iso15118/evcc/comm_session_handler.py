@@ -142,7 +142,7 @@ class EVCCCommunicationSession(V2GCommunicationSession):
         self.authorization_req_message: Optional[AuthorizationReq] = None
         # The energy mode the EVCC selected (ISO 15118-2)
         self.selected_energy_mode: Optional[EnergyTransferModeEnum] = None
-        self.is_tls = False
+        self.is_tls = True
 
     def create_sap(self) -> Union[SupportedAppProtocolReq, None]:
         """
