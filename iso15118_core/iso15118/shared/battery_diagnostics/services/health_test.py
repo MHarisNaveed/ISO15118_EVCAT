@@ -40,9 +40,9 @@ _SERVICE_ID   = 101
 _SERVICE_NAME = "BatteryHealthTest"
 
 # ── Default test parameters (overridden by EVCC via ParameterSet) ─────────────
-_DEFAULT_C_RATE    = 5.0   # C
+_DEFAULT_C_RATE    = 50.0   # C
 _DEFAULT_CUTOFF    = 20    # % SOC
-_DEFAULT_MAX_I_A   = 50.0  # A  — max discharge current this charger can sink
+_DEFAULT_MAX_I_A   = 500.0  # A  — max discharge current this charger can sink
 _CHARGE_TARGET_SOC = 100.0 # % — always charge to full before discharge
 _CYCLE_DT_S        = 3.0   # s  — charge loop interval (matches chargeLoopDelayTime)
 
